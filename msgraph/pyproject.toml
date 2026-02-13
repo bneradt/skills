@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msgraph-kit"
+version = "0.1.0"
+description = "Microsoft Graph integration for Claude Code (Kit)"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "msgraph-sdk>=1.54.0",
+    "azure-identity>=1.19.0",
+    "python-dotenv>=1.0.0",
+    "markdownify>=0.14.1",
+    "markdown>=3.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

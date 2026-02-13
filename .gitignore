@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test/build cache
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Auth artifacts (non-sensitive but user-specific)
+# Token cache is in macOS Keychain, but auth record is local
