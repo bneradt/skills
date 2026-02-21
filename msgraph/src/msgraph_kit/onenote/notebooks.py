@@ -1,41 +1,56 @@
-"""OneNote notebook operations via Microsoft Graph API."""
+"""OneNote notebook operations via Microsoft Graph API (lightweight HTTP)."""
 
 from __future__ import annotations
 
-from msgraph import GraphServiceClient
-from msgraph.generated.models.notebook import Notebook
+import requests
+
+from .. import auth
+
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 
-async def list_notebooks(client: GraphServiceClient) -> list[dict]:
+def list_notebooks() -> list[dict]:
     """List all notebooks for the authenticated user."""
-    result = await client.me.onenote.notebooks.get()
-    notebooks = []
-    if result and result.value:
-        for nb in result.value:
-            notebooks.append(_notebook_to_dict(nb))
-    return notebooks
+    resp = requests.get(
+        f"{GRAPH_BASE}/me/onenote/notebooks",
+        headers=auth.get_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return [_notebook_to_dict(nb) for nb in data.get("value", [])]
 
 
-async def get_notebook(client: GraphServiceClient, notebook_id: str) -> dict:
+def get_notebook(notebook_id: str) -> dict:
     """Get a single notebook by ID."""
-    nb = await client.me.onenote.notebooks.by_notebook_id(notebook_id).get()
-    return _notebook_to_dict(nb)
+    resp = requests.get(
+        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}",
+        headers=auth.get_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return _notebook_to_dict(resp.json())
 
 
-async def create_notebook(client: GraphServiceClient, display_name: str) -> dict:
+def create_notebook(display_name: str) -> dict:
     """Create a new notebook."""
-    body = Notebook(display_name=display_name)
-    nb = await client.me.onenote.notebooks.post(body)
-    return _notebook_to_dict(nb)
+    resp = requests.post(
+        f"{GRAPH_BASE}/me/onenote/notebooks",
+        headers=auth.get_headers(),
+        json={"displayName": display_name},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return _notebook_to_dict(resp.json())
 
 
-def _notebook_to_dict(nb: Notebook) -> dict:
-    """Convert a Notebook model to a plain dict."""
+def _notebook_to_dict(nb: dict) -> dict:
+    """Normalize a notebook JSON response to a clean dict."""
     return {
-        "id": nb.id,
-        "displayName": nb.display_name,
-        "createdDateTime": nb.created_date_time.isoformat() if nb.created_date_time else None,
-        "lastModifiedDateTime": nb.last_modified_date_time.isoformat() if nb.last_modified_date_time else None,
-        "isShared": nb.is_shared,
-        "selfUrl": nb.self_ if hasattr(nb, "self_") else None,
+        "id": nb.get("id"),
+        "displayName": nb.get("displayName"),
+        "createdDateTime": nb.get("createdDateTime"),
+        "lastModifiedDateTime": nb.get("lastModifiedDateTime"),
+        "isShared": nb.get("isShared"),
+        "selfUrl": nb.get("self"),
     }

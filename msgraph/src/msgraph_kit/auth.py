@@ -1,7 +1,8 @@
 """Shared authentication for Microsoft Graph.
 
-Uses DeviceCodeCredential with persistent token caching (macOS Keychain)
+Uses DeviceCodeCredential with persistent token caching
 and AuthenticationRecord persistence for silent re-authentication.
+Provides a lightweight get_token() for direct HTTP calls (no SDK needed).
 """
 
 import json
@@ -9,7 +10,6 @@ import sys
 from pathlib import Path
 
 from azure.identity import AuthenticationRecord, DeviceCodeCredential, TokenCachePersistenceOptions
-from msgraph import GraphServiceClient
 
 from . import config
 
@@ -38,7 +38,9 @@ def _make_credential(
     disable_automatic_authentication: bool = False,
 ) -> DeviceCodeCredential:
     """Build a DeviceCodeCredential with token cache and optional saved record."""
-    cache_options = TokenCachePersistenceOptions(name="msgraph-kit")
+    cache_options = TokenCachePersistenceOptions(
+        name="msgraph-kit", allow_unencrypted_storage=True
+    )
     auth_record = _load_auth_record()
 
     kwargs: dict = {
@@ -68,7 +70,9 @@ def authenticate() -> AuthenticationRecord:
             file=sys.stderr,
         )
 
-    cache_options = TokenCachePersistenceOptions(name="msgraph-kit")
+    cache_options = TokenCachePersistenceOptions(
+        name="msgraph-kit", allow_unencrypted_storage=True
+    )
     credential = DeviceCodeCredential(
         client_id=config.CLIENT_ID,
         tenant_id=config.TENANT_ID,
@@ -107,14 +111,20 @@ def check_auth_status() -> dict:
         }
 
 
-def get_graph_client() -> GraphServiceClient:
-    """Get an authenticated GraphServiceClient.
-
-    Tries silent auth first; if that fails, triggers device code flow.
-    """
+def get_token() -> str:
+    """Get a valid access token string for direct HTTP calls."""
     config.validate()
     credential = _make_credential()
-    return GraphServiceClient(credentials=credential, scopes=config.SCOPES)
+    token = credential.get_token(*config.SCOPES)
+    return token.token
+
+
+def get_headers() -> dict[str, str]:
+    """Get Authorization headers for Graph API HTTP requests."""
+    return {
+        "Authorization": f"Bearer {get_token()}",
+        "Content-Type": "application/json",
+    }
 
 
 def logout() -> None:

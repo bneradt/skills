@@ -1,5 +1,5 @@
-msgraph-sdk>=1.54.0
 azure-identity>=1.19.0
 python-dotenv>=1.0.0
+requests>=2.31.0
 markdownify>=0.14.1
 markdown>=3.7

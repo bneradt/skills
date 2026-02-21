@@ -26,7 +26,9 @@ Click **"New registration"** and fill in:
 - **Supported account types**: Choose based on your needs:
   - **Personal Microsoft accounts only** — if you only use a personal Microsoft/Outlook account
   - **Accounts in any organizational directory and personal Microsoft accounts** — if you use both work/school and personal accounts
-- **Redirect URI**: Leave blank (not needed for device code flow)
+- **Redirect URI**: Select **"Mobile and desktop applications"** and add:
+  - `https://login.microsoftonline.com/common/oauth2/nativeclient`
+  - `msal://redirect`
 
 Click **Register**.
 
@@ -63,8 +65,8 @@ From the app's **Overview** page, copy:
 - **Application (client) ID** → this goes in `.env` as `MSGRAPH_CLIENT_ID`
 - **Directory (tenant) ID** → this goes in `.env` as `MSGRAPH_TENANT_ID`
 
-If you selected "Personal Microsoft accounts only", use `consumers` as the tenant ID.
-If you selected the multi-tenant option, use `common` as the tenant ID.
+**Important for personal Microsoft accounts** (including Microsoft 365 Family): use `consumers` as the tenant ID.
+If you selected the multi-tenant option with work/school accounts, use `common`.
 
 ### 7. Configure .env
 
@@ -105,11 +107,27 @@ The client ID in `.env` doesn't match the Azure app registration. Double-check t
 
 ### "AADSTS90002: Tenant '...' not found"
 
-The tenant ID is incorrect. Try using `common` or `consumers` depending on your account type.
+The tenant ID is incorrect. For personal Microsoft accounts (including Microsoft 365 Family), use `consumers`. For work/school accounts, use `common` or the organization's tenant ID.
+
+### "The tenant does not have a valid SharePoint license" (404 on OneNote endpoints)
+
+You authenticated with the wrong tenant. Personal Microsoft accounts **must** use `MSGRAPH_TENANT_ID=consumers`. Using a specific tenant ID or `common` will authenticate you but OneNote calls will fail with this error.
+
+### "We're unable to complete your request — invalid_request: redirect_uri"
+
+The Azure app registration is missing redirect URIs. Go to Authentication → Mobile and desktop applications and add `https://login.microsoftonline.com/common/oauth2/nativeclient` and `msal://redirect`.
+
+### "This is not the right page" (login.microsoftonline.com/common/wrongplace)
+
+Similar to the redirect URI issue above. Ensure both redirect URIs are configured and "Allow public client flows" is still enabled.
+
+### Token cache errors on headless Linux
+
+If you see "Cache encryption is impossible because libsecret dependencies are not installed", the code uses `allow_unencrypted_storage=True` in `TokenCachePersistenceOptions` to fall back to file-based caching. This is expected on headless servers without a desktop keyring.
 
 ## Security Notes
 
 - **No client secret** is stored or needed — device code flow is a public client flow
-- **Tokens** are cached in the macOS Keychain (encrypted by the OS)
+- **Tokens** are cached via `msal-extensions` (macOS Keychain on macOS, file-based on headless Linux)
 - **Auth record** (`~/.msgraph-kit/auth_record.json`) contains only non-sensitive account identifiers (tenant ID, username) — no tokens
 - The `.env` file contains only the app registration's client ID (public information) and tenant ID
