@@ -25,13 +25,7 @@ python3 ~/openclaw/skills/astronomy/astronomy.py "Savoy, IL" --date yesterday
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the openclaw's default location:
-
-```
-USER_LOCATION=Savoy, IL
-```
-
-The location is optional — moon phase and illumination work without it. When provided, sunrise and sunset times are included in the output.
+If a location is provided (as an argument or via the `USER_LOCATION` environment variable), sunrise and sunset times are included. Moon phase and illumination work without a location. `USER_LOCATION` is set in `~/.openclaw/openclaw.json` under `env.vars` — see the `set-user-location` skill.
 
 ## When to Use
 

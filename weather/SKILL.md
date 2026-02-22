@@ -15,7 +15,7 @@ Get current or historical weather via the Open-Meteo API. Python 3, stdlib only 
 # Current weather for a location
 python3 ~/openclaw/skills/weather/weather.py "Cape Coral, FL"
 
-# Uses USER_LOCATION from .env if no location given
+# Uses USER_LOCATION env var if no location given
 python3 ~/openclaw/skills/weather/weather.py
 
 # Historical weather
@@ -25,11 +25,7 @@ python3 ~/openclaw/skills/weather/weather.py "Savoy, IL" --date 2026-01-15
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set the openclaw's default location:
-
-```
-USER_LOCATION=Savoy, IL
-```
+If no location is passed as an argument, the script falls back to the `USER_LOCATION` environment variable. This is set in `~/.openclaw/openclaw.json` under `env.vars` — see the `set-user-location` skill.
 
 ## When to Use
 
