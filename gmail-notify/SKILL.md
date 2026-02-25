@@ -18,17 +18,55 @@ The hook mapping triggers `gmail-filter.sh`, which queries Gmail for priority un
 
 ## Setup
 
-### 1. Ensure the filter script executable
+### 1. Set up the Gmail webhook base config (one-time)
+
+Use OpenClaw's Gmail helper first. This creates the **webhook plumbing** and Gmail watch config, including:
+
+- `hooks.enabled: true`
+- `hooks.token` (used to authenticate `/hooks/*` requests)
+- `hooks.presets: ["gmail"]` (or merged with existing presets)
+- `hooks.gmail.*` (account/topic/subscription/push token/hook URL/serve settings)
+
+Example:
+
+```bash
+openclaw webhooks gmail setup --account your-email@example.com
+```
+
+Then run the watcher service (usually alongside the gateway):
+
+```bash
+openclaw webhooks gmail run
+```
+
+This skill adds a **custom hook mapping** on top of that base config. Do not replace the `hooks` block with only `mappings`.
+
+### 2. Ensure the filter script executable
 
 ```bash
 chmod +x ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh
 ```
 
-### 2. Hook mapping in openclaw.json
+### 3. Add the hook mapping to `openclaw.json` (merge, do not replace)
+
+Add this mapping under `hooks.mappings` while preserving the existing `hooks.enabled`, `hooks.token`, `hooks.presets`, and `hooks.gmail` values created by `openclaw webhooks gmail setup`.
+
+Example **shape** of the resulting `hooks` config (abbreviated):
 
 ```json
 {
   "hooks": {
+    "enabled": true,
+    "path": "/hooks",
+    "token": "YOUR_EXISTING_HOOK_TOKEN",
+    "presets": ["gmail"],
+    "gmail": {
+      "account": "your-email@example.com",
+      "topic": "projects/your-project/topics/gog-gmail-watch",
+      "subscription": "gog-gmail-watch-push",
+      "pushToken": "YOUR_EXISTING_PUSH_TOKEN",
+      "hookUrl": "http://127.0.0.1:3000/hooks/gmail"
+    },
     "mappings": [
       {
         "match": { "path": "gmail" },
@@ -45,7 +83,24 @@ chmod +x ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh
 }
 ```
 
-### 3. Verify
+Notes:
+
+- The Gmail helper writes most of the `hooks.gmail.*` values for you. Reuse those values.
+- The webhook endpoint is typically `/hooks/gmail` (or `${hooks.path}/gmail` if you changed `hooks.path`).
+- `/hooks/*` requests require the hook token in `Authorization: Bearer <token>` or `X-OpenClaw-Token` (not in the query string).
+- If you want to force delivery to a specific Telegram chat, add `"to": "<chat-id>"` to the mapping.
+
+### 4. Ensure required script environment variables are configured
+
+`gmail-filter.sh` expects `gog` credentials to work non-interactively on the host running OpenClaw:
+
+- `GOG_KEYRING_BACKEND`
+- `GOG_KEYRING_PASSWORD`
+- `GOG_ACCOUNT` (optional if you want the script default)
+
+Set these in `openclaw.json` under `env.vars` (or otherwise ensure they are available to the process running the hook-triggered agent turn).
+
+### 5. Verify
 
 ```bash
 bash ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh
@@ -53,6 +108,13 @@ bash ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh
 
 - Exit code 0 + JSON output = matching emails found
 - Exit code 1 + no output = nothing to report
+
+After that, verify end-to-end by confirming:
+
+- Gateway is running with hooks enabled
+- `openclaw webhooks gmail run` is running
+- Gmail push events reach `/hooks/gmail`
+- The mapping triggers and delivers to Telegram
 
 ## Filter Criteria
 
