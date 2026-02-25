@@ -19,8 +19,17 @@ FALLBACK_WINDOW="${GMAIL_FILTER_WINDOW:-1h}"
 MAX_BODY="${GMAIL_FILTER_MAX_BODY:-3000}"
 STATE_DIR="${HOME}/.openclaw/state/gmail-filter"
 STATE_FILE="${STATE_DIR}/last-check-epoch"
+LOCK_FILE="${STATE_DIR}/lock"
 
 mkdir -p "$STATE_DIR"
+
+# Serialize runs: Gmail Pub/Sub can emit multiple pushes for one user-visible email,
+# and OpenClaw may trigger overlapping hook runs. Without a lock, two runs can read
+# the same checkpoint and both notify.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK_FILE"
+  flock -x 9
+fi
 
 # Determine the time boundary: stored epoch or fallback
 time_filter=""
@@ -35,6 +44,8 @@ if [ -z "$time_filter" ]; then
   time_filter="newer_than:${FALLBACK_WINDOW}"
 fi
 
+run_started_epoch=$(date +%s)
+
 # Priority filter query:
 #   1. Primary inbox (exclude promotions/updates/forums)
 #   2. label:Missionaries
@@ -46,11 +57,11 @@ QUERY="is:unread ${time_filter} ((in:inbox AND -category:promotions AND -categor
 result=$(gog gmail messages search "$QUERY" --max "$MAX" --json --include-body --account "$ACCOUNT" 2>/dev/null)
 
 # Check if any messages matched
-msg_count=$(echo "$result" | jq '.messages | length')
+msg_count=$(echo "$result" | jq -r '.messages | length' 2>/dev/null || echo 0)
 
-if [ "$msg_count" -eq 0 ] || [ -z "$msg_count" ]; then
+if [ -z "$msg_count" ] || [ "$msg_count" -eq 0 ]; then
   # No matches — still update the checkpoint to "now"
-  date +%s > "$STATE_FILE"
+  echo "$run_started_epoch" > "$STATE_FILE"
   exit 1
 fi
 
@@ -59,13 +70,21 @@ result=$(echo "$result" | jq --argjson max "$MAX_BODY" '
   .messages |= [.[] | .body = (.body[:$max] + if (.body | length) > $max then "…[truncated]" else "" end)]
 ')
 
-# Update the checkpoint to the newest email's date
-newest_date=$(echo "$result" | jq -r '.messages[0].date // empty')
-if [ -n "$newest_date" ]; then
-  newest_epoch=$(date -d "$newest_date" +%s 2>/dev/null || true)
-  if [[ "$newest_epoch" =~ ^[0-9]+$ ]] && [ "$newest_epoch" -gt 0 ]; then
-    echo "$newest_epoch" > "$STATE_FILE"
+# Advance the checkpoint using the max parseable message date (across all matches),
+# but never behind the run start. This avoids reprocessing when search order differs.
+max_message_epoch=0
+while IFS= read -r msg_date; do
+  [ -z "$msg_date" ] && continue
+  msg_epoch=$(date -d "$msg_date" +%s 2>/dev/null || true)
+  if [[ "$msg_epoch" =~ ^[0-9]+$ ]] && [ "$msg_epoch" -gt "$max_message_epoch" ]; then
+    max_message_epoch="$msg_epoch"
   fi
+done < <(echo "$result" | jq -r '.messages[]?.date // empty')
+
+checkpoint_epoch="$run_started_epoch"
+if [ "$max_message_epoch" -gt "$checkpoint_epoch" ]; then
+  checkpoint_epoch="$max_message_epoch"
 fi
+echo "$checkpoint_epoch" > "$STATE_FILE"
 
 echo "$result"
