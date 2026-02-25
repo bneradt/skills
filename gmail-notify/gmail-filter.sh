@@ -52,8 +52,11 @@ run_started_epoch=$(date +%s)
 #   1. Primary inbox (exclude promotions/updates/forums)
 #   2. label:Missionaries
 #   3. label:"SPBC Prayer Chain"
-#   4. Voice of the Martyrs (vom.org / persecution.com)
-QUERY="is:unread ${time_filter} ((in:inbox AND -category:promotions AND -category:updates AND -category:forums) OR label:Missionaries OR label:\"SPBC Prayer Chain\" OR from:vom.org OR from:persecution.com)"
+#   4. Voice of the Martyrs (sender domains observed in Brian's inbox)
+#      - vomusa.org (observed)
+#      - vom.org (legacy/alternate)
+#      - persecution.com (legacy/alternate)
+QUERY="is:unread ${time_filter} ((in:inbox AND -category:promotions AND -category:updates AND -category:forums) OR label:Missionaries OR label:\"SPBC Prayer Chain\" OR from:vomusa.org OR from:vom.org OR from:persecution.com)"
 
 # Use messages search (not thread search) to get individual emails with body text
 result=$(gog gmail messages search "$QUERY" --max "$MAX" --json --include-body --account "$ACCOUNT" 2>/dev/null)
