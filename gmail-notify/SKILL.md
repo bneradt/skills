@@ -131,7 +131,8 @@ The script tracks the last check time in `~/.openclaw/state/gmail-filter/last-ch
 
 1. Uses Gmail's `after:<epoch>` to only query emails newer than the last check.
 2. Falls back to `newer_than:1h` on first run (no state file).
-3. Updates the checkpoint after each run (newest email date, or "now" if no matches).
+3. Serializes overlapping runs with a lock (prevents duplicate notifications when Gmail emits bursty push events).
+4. Advances the checkpoint after each run using the max parseable message date, but never earlier than the run start time (or "now" if no matches).
 
 To reset: `rm ~/.openclaw/state/gmail-filter/last-check-epoch`
 
