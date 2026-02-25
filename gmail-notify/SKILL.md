@@ -51,7 +51,7 @@ chmod +x ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh
 
 Add this mapping under `hooks.mappings` while preserving the existing `hooks.enabled`, `hooks.token`, `hooks.presets`, and `hooks.gmail` values created by `openclaw webhooks gmail setup`.
 
-Example **shape** of the resulting `hooks` config (abbreviated):
+Example **shape** of the resulting `hooks` config (abbreviated, announce-flow mode):
 
 ```json
 {
@@ -73,7 +73,7 @@ Example **shape** of the resulting `hooks` config (abbreviated):
         "action": "agent",
         "wakeMode": "now",
         "name": "Gmail Filter",
-        "messageTemplate": "Gmail push received. Run the pre-filter script:\n\n```bash\nbash ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh\n```\n\nIf exit code 1 (no output): reply EXACTLY with NO_REPLY\n\nIf JSON output: summarize each email for the user as a short Telegram message. For each email include:\n- **From** (person/org name, not the raw email)\n- **Subject**\n- **Summary** — 1-3 sentences covering the key content and any action items from the body\n\nKeep the overall message concise and scannable.",
+        "messageTemplate": "Gmail push received. Run the pre-filter script:\n\n```bash\nbash ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh\n```\n\nIf exit code 1 (no output): reply EXACTLY with NO_REPLY\n\nIf JSON output: summarize each email for the user as a short Telegram message. For each email include:\n- **From** (person/org name, not the raw email)\n- **Subject**\n- **Summary** — 1-3 sentences covering the key content and any action items from the body\n\nImportant: kit (OpenClaw) only has read-only access to email in this Gmail hook workflow. It is for informational purposes only and cannot mark messages as read, archive/delete them, or reply to email from this hook.\n\nKeep the overall message concise and scannable.",
         "deliver": true,
         "channel": "telegram",
         "thinking": "off"
@@ -89,6 +89,37 @@ Notes:
 - The webhook endpoint is typically `/hooks/gmail` (or `${hooks.path}/gmail` if you changed `hooks.path`).
 - `/hooks/*` requests require the hook token in `Authorization: Bearer <token>` or `X-OpenClaw-Token` (not in the query string).
 - If you want to force delivery to a specific Telegram chat, add `"to": "<chat-id>"` to the mapping.
+
+### 3a. Recommended duplicate-safe mapping (direct-send mode)
+
+If you see duplicate Telegram messages with `deliver: true`, use this mode instead:
+
+- Set `"deliver": false` to bypass the cron/subagent announce flow
+- Have the hook agent send the Telegram message directly with the `message` tool
+- Reply `NO_REPLY` after the tool send so OpenClaw does not post another message
+
+Example mapping (replace the chat id):
+
+```json
+{
+  "match": { "path": "gmail" },
+  "action": "agent",
+  "wakeMode": "now",
+  "name": "Gmail Filter",
+  "sessionKey": "hook:gmail-filter",
+  "deliver": false,
+  "channel": "telegram",
+  "to": "8415653844",
+  "thinking": "off",
+  "timeoutSeconds": 120,
+  "messageTemplate": "Gmail push received. Run the pre-filter script:\n\n```bash\nbash ~/.openclaw/workspace/skills/gmail-notify/gmail-filter.sh\n```\n\nIf exit code 1 (no output): reply EXACTLY with NO_REPLY.\n\nIf JSON output: write a USER-FACING Telegram message in a natural, warm, concise style (not raw JSON, not developer notes). Prefer a short conversational summary. For each email include key details naturally (sender name, subject, what it is about, and any action item if present). If it is just a test or informational email, say that plainly.\n\nImportant: kit (OpenClaw) only has read-only access to email in this Gmail hook workflow. It is for informational purposes only and cannot mark messages as read, archive/delete them, or reply to email from this hook.\n\nDo not mention scripts, webhooks, JSON, or internal processing. Do not send duplicates.\n\nThen send the final message with the message tool using:\n- action: send\n- channel: telegram\n- target: telegram:8415653844\n\nAfter sending with the message tool, reply EXACTLY with NO_REPLY."
+}
+```
+
+Tradeoff:
+
+- `deliver: true` can produce very nice main-agent phrasing, but may duplicate in some setups due to the announce path.
+- `deliver: false` + `message` tool direct-send is more reliable for duplicate suppression and still supports human-friendly wording via the prompt.
 
 ### 4. Ensure required script environment variables are configured
 
@@ -115,6 +146,7 @@ After that, verify end-to-end by confirming:
 - `openclaw webhooks gmail run` is running
 - Gmail push events reach `/hooks/gmail`
 - The mapping triggers and delivers to Telegram
+- In direct-send mode (`deliver: false`), the hook agent sends via the `message` tool and then returns `NO_REPLY`
 
 ## Filter Criteria
 
@@ -138,6 +170,15 @@ To reset: `rm ~/.openclaw/state/gmail-filter/last-check-epoch`
 
 If you also want to clear duplicate-suppression memory, remove:
 `~/.openclaw/state/gmail-filter/seen-signatures.txt`
+
+## Duplicate Troubleshooting
+
+If duplicates persist, determine which layer is duplicating:
+
+1. **Filter/script layer**: inspect the Gmail hook session transcript and `seen-signatures.txt`.
+2. **Announce/delivery layer**: compare the hook session transcript vs the main session transcript. If the hook session only ran once but Telegram still shows duplicates, the duplicate is downstream of the filter (for example, announce flow behavior).
+
+In that case, switch to the recommended direct-send mode (`deliver: false`) above.
 
 ## Script Output
 
