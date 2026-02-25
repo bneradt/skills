@@ -17,9 +17,11 @@ ACCOUNT="${GOG_ACCOUNT:-brian.neradt@gmail.com}"
 MAX="${GMAIL_FILTER_MAX:-10}"
 FALLBACK_WINDOW="${GMAIL_FILTER_WINDOW:-1h}"
 MAX_BODY="${GMAIL_FILTER_MAX_BODY:-3000}"
+SEEN_MAX="${GMAIL_FILTER_SEEN_MAX:-500}"
 STATE_DIR="${HOME}/.openclaw/state/gmail-filter"
 STATE_FILE="${STATE_DIR}/last-check-epoch"
 LOCK_FILE="${STATE_DIR}/lock"
+SEEN_FILE="${STATE_DIR}/seen-signatures.txt"
 
 mkdir -p "$STATE_DIR"
 
@@ -55,6 +57,18 @@ QUERY="is:unread ${time_filter} ((in:inbox AND -category:promotions AND -categor
 
 # Use messages search (not thread search) to get individual emails with body text
 result=$(gog gmail messages search "$QUERY" --max "$MAX" --json --include-body --account "$ACCOUNT" 2>/dev/null)
+raw_result="$result"
+
+# De-duplicate by stable message signature (prefer Gmail ids/thread ids; fall back
+# to from+subject+date) to suppress repeated Gmail push events for the same email.
+seen_json=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$SEEN_FILE" 2>/dev/null || echo '[]')
+result=$(echo "$raw_result" | jq --argjson seen "$seen_json" '
+  .messages |= map(
+    . as $m
+    | (($m.id // $m.messageId // $m.threadId // (($m.from // "") + "|" + ($m.subject // "") + "|" + ($m.date // ""))) | tostring) as $sig
+    | select(($sig | length) == 0 or (($seen | index($sig)) | not))
+  )
+')
 
 # Check if any messages matched
 msg_count=$(echo "$result" | jq -r '.messages | length' 2>/dev/null || echo 0)
@@ -70,6 +84,21 @@ result=$(echo "$result" | jq --argjson max "$MAX_BODY" '
   .messages |= [.[] | .body = (.body[:$max] + if (.body | length) > $max then "…[truncated]" else "" end)]
 ')
 
+# Record signatures from all fetched messages (including duplicates) so later
+# repeated push events are suppressed quickly.
+new_signatures=$(echo "$raw_result" | jq -r '
+  .messages[]? |
+  ((.id // .messageId // .threadId // ((.from // "") + "|" + (.subject // "") + "|" + (.date // ""))) | tostring)
+  | select(length > 0)
+')
+if [ -n "$new_signatures" ]; then
+  {
+    cat "$SEEN_FILE" 2>/dev/null || true
+    printf '%s\n' "$new_signatures"
+  } | tail -n "$SEEN_MAX" > "${SEEN_FILE}.tmp"
+  mv "${SEEN_FILE}.tmp" "$SEEN_FILE"
+fi
+
 # Advance the checkpoint using the max parseable message date (across all matches),
 # but never behind the run start. This avoids reprocessing when search order differs.
 max_message_epoch=0
@@ -79,7 +108,7 @@ while IFS= read -r msg_date; do
   if [[ "$msg_epoch" =~ ^[0-9]+$ ]] && [ "$msg_epoch" -gt "$max_message_epoch" ]; then
     max_message_epoch="$msg_epoch"
   fi
-done < <(echo "$result" | jq -r '.messages[]?.date // empty')
+done < <(echo "$raw_result" | jq -r '.messages[]?.date // empty')
 
 checkpoint_epoch="$run_started_epoch"
 if [ "$max_message_epoch" -gt "$checkpoint_epoch" ]; then

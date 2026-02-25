@@ -136,6 +136,9 @@ The script tracks the last check time in `~/.openclaw/state/gmail-filter/last-ch
 
 To reset: `rm ~/.openclaw/state/gmail-filter/last-check-epoch`
 
+If you also want to clear duplicate-suppression memory, remove:
+`~/.openclaw/state/gmail-filter/seen-signatures.txt`
+
 ## Script Output
 
 `gmail-filter.sh` uses `gog gmail messages search --include-body` and returns JSON with `from`, `subject`, `date`, `labels`, and `body` (truncated to 3000 chars) per message.
@@ -150,6 +153,7 @@ Edit `gmail-filter.sh` in this skill directory. The filter query is in the `QUER
 | `GMAIL_FILTER_MAX` | `10` | Max messages to return |
 | `GMAIL_FILTER_MAX_BODY` | `3000` | Max body chars per message |
 | `GMAIL_FILTER_WINDOW` | `1h` | Fallback window (only used when no state file exists) |
+| `GMAIL_FILTER_SEEN_MAX` | `500` | Number of recent message signatures kept for duplicate suppression |
 
 ## When to Use
 
