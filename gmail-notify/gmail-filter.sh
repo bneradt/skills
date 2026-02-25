@@ -48,15 +48,53 @@ fi
 
 run_started_epoch=$(date +%s)
 
+# Allow-listed sender domains and labels for priority mail.
+ALLOWLIST_FROM_DOMAINS=(
+  "vomusa.org"
+  "churchcenteronline.com"
+)
+
+ALLOWLIST_LABELS=(
+  "Missionaries"
+  "SPBC Prayer Chain"
+)
+
+from_clauses=()
+for domain in "${ALLOWLIST_FROM_DOMAINS[@]}"; do
+  from_clauses+=("from:${domain}")
+done
+
+label_clauses=()
+for label in "${ALLOWLIST_LABELS[@]}"; do
+  label_clauses+=("label:\"${label}\"")
+done
+
+from_query=""
+if [ "${#from_clauses[@]}" -gt 0 ]; then
+  from_query="$(printf ' OR %s' "${from_clauses[@]}")"
+  from_query="${from_query# OR }"
+fi
+
+label_query=""
+if [ "${#label_clauses[@]}" -gt 0 ]; then
+  label_query="$(printf ' OR %s' "${label_clauses[@]}")"
+  label_query="${label_query# OR }"
+fi
+
+priority_groups=(
+  "(in:inbox AND -category:promotions AND -category:updates AND -category:forums)"
+)
+[ -n "$label_query" ] && priority_groups+=("$label_query")
+[ -n "$from_query" ] && priority_groups+=("$from_query")
+
+priority_query="$(printf ' OR %s' "${priority_groups[@]}")"
+priority_query="${priority_query# OR }"
+
 # Priority filter query:
 #   1. Primary inbox (exclude promotions/updates/forums)
-#   2. label:Missionaries
-#   3. label:"SPBC Prayer Chain"
-#   4. Voice of the Martyrs (sender domains observed in Brian's inbox)
-#      - vomusa.org (observed)
-#      - vom.org (legacy/alternate)
-#      - persecution.com (legacy/alternate)
-QUERY="is:unread ${time_filter} ((in:inbox AND -category:promotions AND -category:updates AND -category:forums) OR label:Missionaries OR label:\"SPBC Prayer Chain\" OR from:vomusa.org OR from:vom.org OR from:persecution.com)"
+#   2. Allow-listed labels (see ALLOWLIST_LABELS)
+#   3. Allow-listed sender domains (see ALLOWLIST_FROM_DOMAINS)
+QUERY="is:unread ${time_filter} (${priority_query})"
 
 # Use messages search (not thread search) to get individual emails with body text
 result=$(gog gmail messages search "$QUERY" --max "$MAX" --json --include-body --account "$ACCOUNT" 2>/dev/null)
