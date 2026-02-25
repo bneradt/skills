@@ -61,7 +61,12 @@ raw_result="$result"
 
 # De-duplicate by stable message signature (prefer Gmail ids/thread ids; fall back
 # to from+subject+date) to suppress repeated Gmail push events for the same email.
-seen_json=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$SEEN_FILE" 2>/dev/null || echo '[]')
+if [ -s "$SEEN_FILE" ]; then
+  seen_json=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$SEEN_FILE" 2>/dev/null || echo '[]')
+else
+  seen_json='[]'
+fi
+[ -n "$seen_json" ] || seen_json='[]'
 result=$(echo "$raw_result" | jq --argjson seen "$seen_json" '
   .messages |= map(
     . as $m
