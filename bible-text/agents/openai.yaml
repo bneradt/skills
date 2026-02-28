@@ -1,0 +1,5 @@
+version: 1
+display_name: Bible Text
+short_description: Local Bible passage lookup from bible-data JSON.
+default_prompt: Look up a Bible passage from the local bible-data dataset.
+

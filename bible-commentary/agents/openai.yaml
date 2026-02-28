@@ -1,0 +1,5 @@
+version: 1
+display_name: Bible Commentary
+short_description: Local SQLite lookup and synthesis of public-domain Bible commentaries.
+default_prompt: Provide commentary excerpts and a synthesis for a Bible passage using the local commentary index.
+

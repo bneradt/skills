@@ -1,0 +1,47 @@
+{
+  "manifest_version": 1,
+  "sources": [
+    {
+      "commentator_key": "henry",
+      "work_title": "Matthew Henry Complete Commentary (CCEL work page)",
+      "source_url": "https://ccel.org/ccel/henry/mhc1",
+      "local_path": "henry/mhc1.html",
+      "parser": "generic_refscan",
+      "required": true
+    },
+    {
+      "commentator_key": "calvin",
+      "work_title": "John Calvin Commentaries (CCEL work page)",
+      "source_url": "https://ccel.org/ccel/calvin/comment3",
+      "local_path": "calvin/comment3.html",
+      "parser": "generic_refscan",
+      "required": true
+    },
+    {
+      "commentator_key": "gill",
+      "work_title": "John Gill Exposition (CCEL work page)",
+      "source_url": "https://ccel.org/ccel/gill/exposition",
+      "local_path": "gill/exposition.html",
+      "parser": "generic_refscan",
+      "required": true
+    },
+    {
+      "commentator_key": "jfb",
+      "work_title": "Jamieson-Fausset-Brown Commentary (CCEL work page)",
+      "source_url": "https://ccel.org/ccel/jamieson/jfb",
+      "local_path": "jfb/jfb.html",
+      "parser": "generic_refscan",
+      "required": true
+    },
+    {
+      "commentator_key": "spurgeon",
+      "work_title": "Treasury of David (CCEL work page)",
+      "source_url": "https://ccel.org/ccel/spurgeon/treas",
+      "local_path": "spurgeon/treasury-of-david.html",
+      "parser": "generic_refscan",
+      "default_book": "Psalms",
+      "required": true
+    }
+  ]
+}
+
