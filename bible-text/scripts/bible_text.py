@@ -18,6 +18,22 @@ if COMMENTARY_SCRIPTS not in sys.path:
 from common_passages import parse_osis_ref, parse_passage  # type: ignore  # noqa: E402
 
 
+def discover_bible_data_dir() -> str:
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".openclaw", "workspace", "data", "bible-data"),
+        os.path.join(home, "openclaw", "workspace", "data", "bible-data"),
+        os.path.join(home, "workspace", "data", "bible-data"),
+        os.path.join(home, "bible-data"),
+    ]
+    for path in candidates:
+        if os.path.isfile(os.path.join(path, "data", "KJV", "KJV.json")):
+            return path
+        if os.path.isfile(os.path.join(path, "KJV", "KJV.json")):
+            return path
+    return ""
+
+
 def _clean_bible_data_text(text: str) -> str:
     # Remove inline feature markers used by jburson/bible-data (e.g., "Lord*s", "For*pn")
     out_words = []
@@ -106,10 +122,16 @@ def main() -> int:
     args = ap.parse_args()
 
     data_dir = os.path.expanduser(os.environ.get("BIBLE_TEXT_DATA_DIR", ""))
+    if not data_dir:
+        data_dir = discover_bible_data_dir()
     translation = os.environ.get("BIBLE_TEXT_TRANSLATION", "KJV")
     strict = os.environ.get("BIBLE_TEXT_STRICT", "false").lower() in {"1", "true", "yes", "on"}
     if not data_dir:
-        print("BIBLE_TEXT_DATA_DIR is required", file=sys.stderr)
+        print(
+            "Bible data not found. Set BIBLE_TEXT_DATA_DIR or clone bible-data to "
+            "~/.openclaw/workspace/data/bible-data",
+            file=sys.stderr,
+        )
         return 2
 
     try:
