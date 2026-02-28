@@ -13,6 +13,7 @@ Retrieve Bible passages from a local `bible-data` checkout (no API calls).
 ```bash
 python3 ~/.openclaw/workspace/skills/bible-text/scripts/bible_text.py "Romans 8:28-30"
 python3 ~/.openclaw/workspace/skills/bible-text/scripts/bible_text.py "Psalm 23" --json
+python3 ~/.openclaw/workspace/skills/bible-text/scripts/bible_text.py --setup
 ```
 
 ## Configuration
@@ -27,6 +28,19 @@ If `BIBLE_TEXT_DATA_DIR` is not set, the script auto-discovers common paths incl
 - `~/openclaw/workspace/data/bible-data`
 - `~/workspace/data/bible-data`
 - `~/bible-data`
+
+## First-Time Startup
+
+- Running with `--setup` launches an interactive setup flow.
+- It asks for:
+  - Bible data directory
+  - preferred translation
+  - strict parsing preference
+- It writes these values to `~/.openclaw/openclaw.json` under `env.vars`:
+  - `BIBLE_TEXT_DATA_DIR`
+  - `BIBLE_TEXT_TRANSLATION`
+  - `BIBLE_TEXT_STRICT`
+- After writing config, the script prints a gateway restart suggestion.
 
 ### One-time setup (if dataset is missing)
 

@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +32,106 @@ def discover_bible_data_dir() -> str:
         if os.path.isfile(os.path.join(path, "KJV", "KJV.json")):
             return path
     return ""
+
+
+def openclaw_config_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".openclaw", "openclaw.json")
+
+
+def read_openclaw_config(path: str) -> dict:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_openclaw_env_vars(path: str, updates: Dict[str, str]) -> None:
+    data = read_openclaw_config(path)
+    env = data.get("env")
+    if not isinstance(env, dict):
+        env = {}
+    vars_obj = env.get("vars")
+    if not isinstance(vars_obj, dict):
+        vars_obj = {}
+    for k, v in updates.items():
+        vars_obj[k] = v
+    env["vars"] = vars_obj
+    data["env"] = env
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+
+def discover_available_translations(data_dir: str) -> List[str]:
+    found = set()
+    roots = [os.path.join(data_dir, "data"), data_dir]
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for name in os.listdir(root):
+            p = os.path.join(root, name)
+            if not os.path.isdir(p):
+                continue
+            candidate = os.path.join(p, f"{name}.json")
+            if os.path.isfile(candidate):
+                found.add(name.upper())
+    if not found:
+        return ["KJV", "NKJV", "ESV", "NIV", "NASB", "CSB"]
+    return sorted(found)
+
+
+def _prompt(prompt: str, default: Optional[str] = None) -> str:
+    suffix = f" [{default}]" if default else ""
+    ans = input(f"{prompt}{suffix}: ").strip()
+    return ans or (default or "")
+
+
+def run_first_time_setup() -> int:
+    print("Bible Text first-time setup")
+    print("This will save configuration to ~/.openclaw/openclaw.json (env.vars).")
+    discovered = discover_bible_data_dir()
+    data_dir = _prompt(
+        "Bible data directory",
+        discovered or os.path.join(os.path.expanduser("~"), ".openclaw", "workspace", "data", "bible-data"),
+    )
+    if not os.path.isdir(data_dir):
+        print(f"Directory not found: {data_dir}", file=sys.stderr)
+        return 2
+
+    translations = discover_available_translations(data_dir)
+    print("Available translations:")
+    for i, t in enumerate(translations, start=1):
+        print(f"  {i}. {t}")
+    raw_choice = _prompt("Preferred translation (name or number)", "KJV")
+    translation = "KJV"
+    if raw_choice.isdigit():
+        idx = int(raw_choice)
+        if 1 <= idx <= len(translations):
+            translation = translations[idx - 1]
+    elif raw_choice:
+        translation = raw_choice.upper()
+
+    strict_raw = _prompt("Strict reference parsing? (y/N)", "N").lower()
+    strict = "true" if strict_raw in {"y", "yes", "1", "true"} else "false"
+
+    cfg_path = openclaw_config_path()
+    write_openclaw_env_vars(
+        cfg_path,
+        {
+            "BIBLE_TEXT_DATA_DIR": data_dir,
+            "BIBLE_TEXT_TRANSLATION": translation,
+            "BIBLE_TEXT_STRICT": strict,
+        },
+    )
+    print(f"Saved config to {cfg_path}")
+    print("Configured env vars: BIBLE_TEXT_DATA_DIR, BIBLE_TEXT_TRANSLATION, BIBLE_TEXT_STRICT")
+    print("Restart suggestion: ~/.local/bin/openclaw gateway restart")
+    return 0
 
 
 def _clean_bible_data_text(text: str) -> str:
@@ -117,9 +217,22 @@ def verse_records_for_passage(items: List[dict], query):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Lookup Bible passage from local bible-data files")
-    ap.add_argument("passage", help="Passage reference, e.g. 'Romans 8:28-30'")
+    ap.add_argument("passage", nargs="?", help="Passage reference, e.g. 'Romans 8:28-30'")
     ap.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output")
+    ap.add_argument("--setup", action="store_true", help="Run first-time setup and write env vars to ~/.openclaw/openclaw.json")
     args = ap.parse_args()
+
+    cfg = read_openclaw_config(openclaw_config_path())
+    cfg_vars = ((cfg.get("env") or {}).get("vars") or {}) if isinstance(cfg.get("env"), dict) else {}
+    has_cfg = isinstance(cfg_vars, dict) and ("BIBLE_TEXT_DATA_DIR" in cfg_vars or "BIBLE_TEXT_TRANSLATION" in cfg_vars)
+
+    if args.setup:
+        return run_first_time_setup()
+    if not args.passage and sys.stdin.isatty() and not has_cfg:
+        return run_first_time_setup()
+    if not args.passage:
+        print("Passage is required (or use --setup).", file=sys.stderr)
+        return 2
 
     data_dir = os.path.expanduser(os.environ.get("BIBLE_TEXT_DATA_DIR", ""))
     if not data_dir:
