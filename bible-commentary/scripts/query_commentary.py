@@ -32,8 +32,10 @@ def _auto_bootstrap_needed(index_path: str, manifest: dict) -> bool:
         conn.close()
         if parser_version != PARSER_VERSION:
             return True
-        if manifest_version != str(manifest.get("manifest_version", "1")):
+        if manifest_version not in {str(manifest.get("manifest_version", "1")), "ai_friendly_v1"}:
             return True
+        if manifest_version == "ai_friendly_v1":
+            return False
     except sqlite3.DatabaseError:
         return True
 
@@ -188,4 +190,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

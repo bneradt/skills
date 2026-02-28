@@ -13,8 +13,8 @@ import sys
 from html import unescape
 from typing import Dict, Iterable, List, Optional
 
-from common_db import PARSER_VERSION, connect, default_data_dir, init_schema, replace_entries_for_source, set_manifest, upsert_source
-from common_passages import Passage, parse_passage, scan_passages_in_text
+from common_db import PARSER_VERSION, book_lookup, connect, default_data_dir, init_schema, replace_entries_for_source, set_manifest, upsert_source
+from common_passages import Passage, match_book, parse_passage, scan_passages_in_text
 from common_progress import ProgressReporter
 
 
@@ -46,6 +46,155 @@ def _file_hash(path: str) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _find_ai_friendly_root(data_dir: str) -> Optional[str]:
+    candidates = []
+    base = os.path.join(data_dir, "ai_friendly")
+    candidates.extend(
+        [
+            base,
+            os.path.join(base, "ai_friendly"),
+            os.path.join(base, "commentaries_ai_friendly"),
+        ]
+    )
+    if os.path.isdir(base):
+        for name in os.listdir(base):
+            child = os.path.join(base, name)
+            if os.path.isdir(child):
+                candidates.append(child)
+    for c in candidates:
+        if os.path.isdir(os.path.join(c, "manifests")) and os.path.isdir(os.path.join(c, "schemas")):
+            return c
+    return None
+
+
+def _norm_commentator_key(value: str) -> str:
+    s = (value or "").strip().lower()
+    mapping = {
+        "matthew_henry": "henry",
+        "john_calvin": "calvin",
+        "john_gill": "gill",
+        "jamieson_fausset_brown": "jfb",
+        "adam_clarke": "clarke",
+    }
+    return mapping.get(s, s)
+
+
+def _rows_from_ai_jsonl(path: str, source: dict, book_ids: Dict[str, int]) -> List[dict]:
+    rows: List[dict] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            book_name = rec.get("book")
+            ch1 = rec.get("chapter_start")
+            ch2 = rec.get("chapter_end")
+            if not book_name or ch1 is None or ch2 is None:
+                continue
+            b = match_book(str(book_name))
+            if not b:
+                continue
+            _, _, canonical_book = b
+            book_id = book_ids.get(canonical_book.lower())
+            if not book_id:
+                continue
+            gran = rec.get("granularity") or "range"
+            if gran not in {"verse", "range", "chapter"}:
+                gran = "range"
+            excerpt = (rec.get("text") or "").strip()
+            if not excerpt:
+                continue
+            v1 = rec.get("verse_start")
+            v2 = rec.get("verse_end")
+            rows.append(
+                {
+                    "commentator_key": source["commentator_key"],
+                    "work_title": source["work_title"],
+                    "book_id": int(book_id),
+                    "chapter_start": int(ch1),
+                    "verse_start": int(v1) if isinstance(v1, int) else None,
+                    "chapter_end": int(ch2),
+                    "verse_end": int(v2) if isinstance(v2, int) else None,
+                    "granularity": gran,
+                    "passage_label": rec.get("coverage_label") or f"{canonical_book} {ch1}",
+                    "excerpt": _normalize_excerpt(excerpt),
+                    "sort_chapter": int(ch1),
+                    "sort_verse": int(v1) if isinstance(v1, int) else 0,
+                }
+            )
+    return rows
+
+
+def _build_from_ai_friendly(conn: sqlite3.Connection, data_dir: str, progress: ProgressReporter) -> Optional[int]:
+    ai_root = _find_ai_friendly_root(data_dir)
+    if not ai_root:
+        return None
+
+    commentator_dirs = ["mh", "jg", "jfb", "jc", "ac"]
+    book_ids = book_lookup(conn)
+    total_inserted = 0
+    progress.emit("INDEX", "detected ai_friendly corpus", root=ai_root)
+
+    for idx, cdir in enumerate(commentator_dirs, start=1):
+        jsonl = os.path.join(ai_root, cdir, "records.jsonl")
+        if not os.path.isfile(jsonl):
+            progress.emit("WARN", "ai_friendly jsonl missing; skipping", dataset=cdir)
+            continue
+        # Pull a sample record for source metadata.
+        with open(jsonl, "r", encoding="utf-8") as f:
+            first = None
+            for line in f:
+                line = line.strip()
+                if line:
+                    first = json.loads(line)
+                    break
+        if not first:
+            progress.emit("WARN", "empty ai_friendly jsonl; skipping", dataset=cdir)
+            continue
+
+        commentator_key = _norm_commentator_key(first.get("commentator", cdir))
+        work_title = first.get("work") or f"AI Friendly {cdir}"
+        source_url = first.get("source_retrieval_url") or first.get("source_canonical_url") or ""
+        parser_name = "ai_friendly_jsonl"
+        content_hash = _file_hash(jsonl)
+        source = {
+            "commentator_key": commentator_key,
+            "work_title": work_title,
+        }
+        source_id = upsert_source(
+            conn,
+            commentator_key,
+            work_title,
+            source_url,
+            jsonl,
+            parser_name,
+            PARSER_VERSION,
+            content_hash,
+        )
+
+        rows = _rows_from_ai_jsonl(jsonl, source, book_ids)
+        replace_entries_for_source(conn, source_id, rows)
+        conn.commit()
+        total_inserted += len(rows)
+        progress.emit(
+            "INDEX",
+            "processed ai_friendly dataset",
+            current=idx,
+            total=len(commentator_dirs),
+            dataset=cdir,
+            entries=len(rows),
+        )
+    set_manifest(conn, "parser_version", PARSER_VERSION)
+    set_manifest(conn, "source_manifest_version", "ai_friendly_v1")
+    conn.commit()
+    progress.emit("DONE", "index build complete from ai_friendly", inserted=total_inserted)
+    return 0
 
 
 def _infer_default_book(source: dict, text: str) -> Optional[str]:
@@ -165,6 +314,12 @@ def build_index(manifest: dict, refresh: bool = False, progress: Optional[Progre
     conn = connect(index_path)
     init_schema(conn)
 
+    # Preferred index path: pre-normalized ai_friendly JSONL corpus.
+    ai_result = _build_from_ai_friendly(conn, data_dir, progress)
+    if ai_result is not None:
+        conn.close()
+        return ai_result
+
     sources = manifest.get("sources", [])
     total_inserted = 0
     progress.emit("INDEX", "starting index build", sources=len(sources), db=index_path)
@@ -217,4 +372,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
