@@ -111,6 +111,24 @@ Email Formatting
     --body-html "<p>Hi Name,</p><p>Thanks for meeting today. Here are the next steps:</p><ul><li>Item one</li><li>Item two</li></ul><p>Best regards,<br>Your Name</p>"
   ```
 
+Viewing Attachments (Gmail)
+
+- First get the exact message id (not thread id):
+  - `gog gmail messages search "your query" --max 20 --json --no-input`
+- Inspect the message and list attachments:
+  - `gog gmail get <messageId> --json --no-input`
+- Download one attachment by attachment id:
+  - `gog gmail attachment <messageId> <attachmentId> --out /path/to/dir --name "file.ext" --no-input`
+- Then analyze locally:
+  - PDF: use your PDF analysis flow/tool on the saved file
+  - Image: use your image analysis flow/tool on the saved file
+
+Tips / gotchas
+
+- `gog gmail get` output includes `attachments[]` with `filename`, `mimeType`, and `attachmentId`.
+- `gog gmail attachment` requires the **message id + attachment id** pair; using a different message id can fail with 404.
+- If automation says attachment not found, re-run `gog gmail get <messageId>` and copy the attachment id exactly.
+
 Notes
 
 - Set `GOG_ACCOUNT=you@gmail.com` to avoid repeating `--account`.
