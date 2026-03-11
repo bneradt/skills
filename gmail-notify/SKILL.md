@@ -159,16 +159,19 @@ The script queries for **unread** emails newer than the last checkpoint, matchin
 
 ## Deduplication
 
-The script tracks the last check time in `~/.openclaw/state/gmail-filter/last-check-epoch`. Each run:
+The script uses **stable Gmail message IDs as the primary duplicate key** and keeps a recent seen-set in `~/.openclaw/state/gmail-filter/seen-signatures.txt`.
 
-1. Uses Gmail's `after:<epoch>` to only query emails newer than the last check.
+It also tracks the last check time in `~/.openclaw/state/gmail-filter/last-check-epoch` as a **secondary optimization** so each run searches less mail. Each run:
+
+1. Uses Gmail's `after:<epoch>` to narrow the search window when a checkpoint exists.
 2. Falls back to `newer_than:1h` on first run (no state file).
 3. Serializes overlapping runs with a lock (prevents duplicate notifications when Gmail emits bursty push events).
-4. Advances the checkpoint after each run using the max parseable message date, but never earlier than the run start time (or "now" if no matches).
+4. Filters results against recent stable message signatures (prefer `id`, then other message-id fields, then conservative fallbacks).
+5. Advances the checkpoint after each run using the max parseable message date, but never earlier than the run start time (or "now" if no matches).
 
-To reset: `rm ~/.openclaw/state/gmail-filter/last-check-epoch`
+To reset the time checkpoint: `rm ~/.openclaw/state/gmail-filter/last-check-epoch`
 
-If you also want to clear duplicate-suppression memory, remove:
+To also clear duplicate-suppression memory, remove:
 `~/.openclaw/state/gmail-filter/seen-signatures.txt`
 
 ## Duplicate Troubleshooting

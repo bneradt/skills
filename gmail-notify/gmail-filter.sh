@@ -5,7 +5,9 @@
 # Exits 0 with JSON on stdout when there are matching emails.
 # Exits 1 (no output) when there is nothing to report.
 #
-# Tracks the newest email date in a state file to avoid duplicates.
+# Uses Gmail message IDs as the primary duplicate key and keeps a small seen-set
+# on disk. The time-based checkpoint is only a secondary optimization to reduce how
+# much mail we have to search on each hook run.
 # Falls back to "last 1 hour" on first run or if state is stale.
 #
 # Required env: GOG_KEYRING_BACKEND, GOG_KEYRING_PASSWORD, GOG_ACCOUNT
@@ -100,8 +102,10 @@ QUERY="is:unread ${time_filter} (${priority_query})"
 result=$(gog gmail messages search "$QUERY" --max "$MAX" --json --include-body --account "$ACCOUNT" 2>/dev/null)
 raw_result="$result"
 
-# De-duplicate by stable message signature (prefer Gmail ids/thread ids; fall back
-# to from+subject+date) to suppress repeated Gmail push events for the same email.
+# De-duplicate by a stable message signature. Prefer Gmail's per-message id, then
+# other message-id fields, and only fall back to thread/from/subject/date if we
+# truly have nothing better. This suppresses repeated push events for the same
+# user-visible email much more reliably than time-based filtering alone.
 if [ -s "$SEEN_FILE" ]; then
   seen_json=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$SEEN_FILE" 2>/dev/null || echo '[]')
 else
@@ -109,9 +113,20 @@ else
 fi
 [ -n "$seen_json" ] || seen_json='[]'
 result=$(echo "$raw_result" | jq --argjson seen "$seen_json" '
+  def sig($m): (
+    if (($m.id // "") | tostring | length) > 0 then
+      "gmail-id:" + ($m.id | tostring)
+    elif (($m.messageId // "") | tostring | length) > 0 then
+      "message-id:" + ($m.messageId | tostring)
+    elif (($m.threadId // "") | tostring | length) > 0 and ((($m.date // "") | tostring | length) > 0 or (($m.subject // "") | tostring | length) > 0 or (($m.from // "") | tostring | length) > 0) then
+      "thread-fallback:" + ($m.threadId | tostring) + "|" + (($m.date // "") | tostring) + "|" + (($m.subject // "") | tostring) + "|" + (($m.from // "") | tostring)
+    else
+      "header-fallback:" + (($m.from // "") | tostring) + "|" + (($m.subject // "") | tostring) + "|" + (($m.date // "") | tostring)
+    end
+  );
   .messages |= map(
     . as $m
-    | (($m.id // $m.messageId // $m.threadId // (($m.from // "") + "|" + ($m.subject // "") + "|" + ($m.date // ""))) | tostring) as $sig
+    | (sig($m)) as $sig
     | select(($sig | length) == 0 or (($seen | index($sig)) | not))
   )
 ')
@@ -130,11 +145,22 @@ result=$(echo "$result" | jq --argjson max "$MAX_BODY" '
   .messages |= [.[] | .body = (.body[:$max] + if (.body | length) > $max then "…[truncated]" else "" end)]
 ')
 
-# Record signatures from all fetched messages (including duplicates) so later
-# repeated push events are suppressed quickly.
+# Record signatures from all fetched messages (including ones already seen) so
+# later repeated push events are suppressed quickly.
 new_signatures=$(echo "$raw_result" | jq -r '
+  def sig($m): (
+    if (($m.id // "") | tostring | length) > 0 then
+      "gmail-id:" + ($m.id | tostring)
+    elif (($m.messageId // "") | tostring | length) > 0 then
+      "message-id:" + ($m.messageId | tostring)
+    elif (($m.threadId // "") | tostring | length) > 0 and ((($m.date // "") | tostring | length) > 0 or (($m.subject // "") | tostring | length) > 0 or (($m.from // "") | tostring | length) > 0) then
+      "thread-fallback:" + ($m.threadId | tostring) + "|" + (($m.date // "") | tostring) + "|" + (($m.subject // "") | tostring) + "|" + (($m.from // "") | tostring)
+    else
+      "header-fallback:" + (($m.from // "") | tostring) + "|" + (($m.subject // "") | tostring) + "|" + (($m.date // "") | tostring)
+    end
+  );
   .messages[]? |
-  ((.id // .messageId // .threadId // ((.from // "") + "|" + (.subject // "") + "|" + (.date // ""))) | tostring)
+  sig(.)
   | select(length > 0)
 ')
 if [ -n "$new_signatures" ]; then
